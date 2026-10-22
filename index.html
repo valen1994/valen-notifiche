@@ -12,7 +12,8 @@
     body{margin:0}header{background:#14263d;color:white;padding:30px 22px}header small{letter-spacing:.18em;opacity:.75}h1{font-size:26px;margin:8px 0 0}
     main{max-width:480px;margin:28px auto;padding:0 18px}.card{background:white;border-radius:18px;padding:22px;box-shadow:0 6px 24px #182c4710}
     button{border:0;border-radius:12px;background:#185cb7;color:white;font-weight:700;font-size:16px;padding:15px;width:100%;margin-top:12px;cursor:pointer}
-    button.secondary{background:#e8eff8;color:#17395d}button:disabled{opacity:.5}p{line-height:1.55}#status{padding:12px;background:#edf3f9;border-radius:10px;font-size:14px;white-space:pre-wrap}
+    button.secondary{background:#e8eff8;color:#17395d}button:disabled{opacity:.5}p{line-height:1.55}#status{padding:12px;background:#edf3f9;border-radius:10px;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+    textarea{box-sizing:border-box;width:100%;min-height:125px;margin-top:12px;padding:10px;border:1px solid #cad5e3;border-radius:10px;font-size:12px;overflow-wrap:anywhere}
     footer{text-align:center;color:#68778a;font-size:12px;margin:26px}
   </style>
 </head>
@@ -22,41 +23,104 @@
     <h2>Test notifiche</h2>
     <p>Verifichiamo che questo telefono possa ricevere notifiche dalla web app.</p>
     <div id="status" role="status" aria-live="polite">Controllo compatibilità in corso…</div>
-    <button id="enable">Attiva notifiche</button>
+    <button id="enable" disabled>Attiva notifiche</button>
     <button id="test" class="secondary" disabled>Invia notifica di prova</button>
-    <p style="font-size:13px;color:#5b6c80">La notifica di prova funziona mentre questa pagina è aperta. Le notifiche push a pagina chiusa saranno configurate in una fase successiva.</p>
+    <button id="subscribe" disabled>Registra telefono per Push</button>
+    <div id="subscriptionBox" hidden>
+      <p><strong>Registrazione riuscita.</strong> Questi dati identificano la sottoscrizione del dispositivo: non pubblicarli su GitHub e non condividerli in chat pubbliche.</p>
+      <textarea id="subscription" readonly aria-label="Sottoscrizione Web Push"></textarea>
+      <button id="copy" class="secondary">Copia sottoscrizione</button>
+    </div>
+    <p style="font-size:13px;color:#5b6c80">La notifica di prova è locale. La registrazione Push prepara il telefono a ricevere notifiche remote; per inviarle servirà configurare il programma sul PC.</p>
   </div></main>
   <footer>VALEN • Sistema di prova</footer>
 <script>
+const VAPID_PUBLIC_KEY='BGQnKOePmFo10ZHJqAfbv28PghMYSia1FjP-3ZuV5HLpTOLny26CokXH47rJiPUnlNzCD0URsfai6Lil4gbTW-c';
 const statusEl=document.getElementById('status');
 const enableBtn=document.getElementById('enable');
 const testBtn=document.getElementById('test');
+const subscribeBtn=document.getElementById('subscribe');
+const subscriptionBox=document.getElementById('subscriptionBox');
+const subscriptionText=document.getElementById('subscription');
 let registration;
 function show(message){statusEl.textContent=message;}
+function updateButtons(){
+  const allowed=Notification.permission==='granted';
+  enableBtn.disabled=allowed;
+  testBtn.disabled=!allowed||!registration;
+  subscribeBtn.disabled=!allowed||!registration||!('PushManager' in window);
+}
+function urlBase64ToUint8Array(base64String){
+  const padding='='.repeat((4-base64String.length%4)%4);
+  const rawData=atob((base64String+padding).replace(/-/g,'+').replace(/_/g,'/'));
+  return Uint8Array.from(rawData,char=>char.charCodeAt(0));
+}
 async function setup(){
   if(!('serviceWorker' in navigator)||!('Notification' in window)){
-    show('Questo browser non supporta le funzioni necessarie. Su iPhone apri il sito con Safari e aggiungilo alla schermata Home; su Android prova Chrome.');
-    enableBtn.disabled=true;return;
+    show('Questo browser non supporta le notifiche. Su iPhone apri il sito con Safari, aggiungilo alla schermata Home e avvialo da lì.');
+    return;
   }
   try{
     registration=await navigator.serviceWorker.register('./sw.js',{scope:'./'});
     registration=await navigator.serviceWorker.ready;
-    show(Notification.permission==='granted'?'Notifiche autorizzate. Puoi eseguire il test.':'Premi “Attiva notifiche” per richiedere il permesso.');
-    testBtn.disabled=Notification.permission!=='granted';
-  }catch(e){show('Registrazione non riuscita: '+e.message);enableBtn.disabled=true;}
+    show(Notification.permission==='granted'?'Notifiche autorizzate. Puoi registrare il telefono per Push.':'Premi “Attiva notifiche” per richiedere il permesso.');
+    updateButtons();
+  }catch(error){show('Registrazione Service Worker non riuscita: '+error.message);}
 }
 enableBtn.addEventListener('click',async()=>{
   try{
     const permission=await Notification.requestPermission();
-    show(permission==='granted'?'Notifiche autorizzate! Ora premi “Invia notifica di prova”.':permission==='denied'?'Notifiche bloccate nelle impostazioni del browser.':'Permesso non ancora concesso.');
-    testBtn.disabled=permission!=='granted';
-  }catch(e){show('Errore autorizzazione: '+e.message);}
+    show(permission==='granted'?'Notifiche autorizzate! Ora premi “Registra telefono per Push”.':permission==='denied'?'Notifiche bloccate nelle impostazioni.':'Permesso non ancora concesso.');
+    updateButtons();
+  }catch(error){show('Errore autorizzazione: '+error.message);}
 });
 testBtn.addEventListener('click',async()=>{
   try{
-    await registration.showNotification('VALEN – Notifica di prova',{body:'Test riuscito! Il telefono può mostrare notifiche della web app.',tag:'valen-test',icon:'./icon.svg',data:{url:location.href}});
-    show('Notifica di prova inviata. Controlla le notifiche del telefono.');
-  }catch(e){show('Impossibile mostrare la notifica: '+e.message);}
+    await registration.showNotification('VALEN – Notifica di prova',{
+      body:'Test riuscito! Il telefono può mostrare notifiche della web app.',
+      tag:'valen-test',icon:'./icon.svg',data:{url:location.href}
+    });
+    show('Notifica locale mostrata. Controlla le notifiche del telefono.');
+  }catch(error){show('Impossibile mostrare la notifica: '+error.message);}
+});
+subscribeBtn.addEventListener('click',async()=>{
+  try{
+    if(Notification.permission!=='granted'){
+      show('Prima autorizza le notifiche.');return;
+    }
+    if(!('PushManager' in window)){
+      show('Questo dispositivo non supporta Web Push.');return;
+    }
+    let subscription=await registration.pushManager.getSubscription();
+    const publicKey=urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+    if(subscription){
+      const existingKey=subscription.options&&subscription.options.applicationServerKey;
+      if(existingKey){
+        const a=new Uint8Array(existingKey);
+        const same=a.length===publicKey.length&&a.every((value,i)=>value===publicKey[i]);
+        if(!same){
+          show('Esiste già una sottoscrizione con un’altra chiave. Contattaci prima di sostituirla.');return;
+        }
+      }
+    }else{
+      subscription=await registration.pushManager.subscribe({
+        userVisibleOnly:true,
+        applicationServerKey:publicKey
+      });
+    }
+    subscriptionText.value=JSON.stringify(subscription.toJSON(),null,2);
+    subscriptionBox.hidden=false;
+    show('Registrazione Web Push riuscita! Il telefono è pronto per la fase di invio remoto.');
+  }catch(error){show('Errore registrazione Web Push: '+error.message);}
+});
+document.getElementById('copy').addEventListener('click',async()=>{
+  try{
+    await navigator.clipboard.writeText(subscriptionText.value);
+    show('Sottoscrizione copiata. Conservala in modo riservato.');
+  }catch(error){
+    subscriptionText.focus();subscriptionText.select();
+    show('Seleziona e copia il testo manualmente.');
+  }
 });
 setup();
 </script>
